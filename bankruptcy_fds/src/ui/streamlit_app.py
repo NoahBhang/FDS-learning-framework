@@ -76,3 +76,10 @@ tx = pd.read_sql(
     conn, params=(selected,),
 )
 st.dataframe(tx, use_container_width=True)
+
+st.download_button(
+    label="거래 내역 CSV 다운로드",
+    data=tx.to_csv(index=False).encode("utf-8-sig"),
+    file_name="fds_result_transactions.csv",
+    mime="text/csv",
+)
