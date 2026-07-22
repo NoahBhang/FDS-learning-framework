@@ -57,7 +57,7 @@
 ## 🎯 포트폴리오 프로젝트
 
 ### **프로젝트 1️⃣: 파산관재인 FDS (메인 포트폴리오)**
-📂 [`bankruptcy-fds/`](./bankruptcy-fds/)
+📂 [`bankruptcy-fds/`](bankruptcy_fds/)
 
 **재산 은닉, 편파 변제, 자금 레이어링 탐지**
 
@@ -71,7 +71,7 @@
 ---
 
 ### **프로젝트 2️⃣: 은행권 FDS (Kaggle PaySim)**
-📂 [`kaggle-bank-fds/`](./kaggle-bank-fds/)
+📂 [`kaggle-bank-fds/`](kaggle_bank_fds/)
 
 **은행 이상거래 탐지 (규칙 기반 + 머신러닝)**
 
@@ -235,17 +235,17 @@ pip install -r requirements.txt
 
 ### **2. Jupyter 노트북 시작 (EDA 단계)**
 ```bash
-jupyter notebook bankruptcy-fds/notebooks/
+jupyter notebook bankruptcy_fds/notebooks/
 ```
 
 ### **3. 유닛 테스트 실행**
 ```bash
-pytest bankruptcy-fds/tests/
+pytest bankruptcy_fds/tests/
 ```
 
 ### **4. Streamlit 대시보드 (UI 단계)**
 ```bash
-streamlit run bankruptcy-fds/src/ui/streamlit_app.py
+streamlit run bankruptcy_fds/src/ui/streamlit_app.py
 ```
 
 ### **5. GitHub 커밋 (학습 기록)**
