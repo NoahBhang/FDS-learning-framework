@@ -319,3 +319,25 @@ git push
 **최종 목표**: 6개월 내 쿠팡·무신사 데이터 분석가 취업
 
 ---
+---
+
+## 검증 기록: 규칙 기반 FDS 테스트와 성능 확인
+
+본 프로젝트는 단순히 이상거래 탐지 로직을 구현하는 데 그치지 않고, 주요 탐지 규칙이 의도한 정책 기준대로 작동하는지 테스트, SQL 검증, 벤치마크를 통해 확인하였다.
+
+### 1. SplitTransferRule 테스트
+
+`SplitTransferRule`은 파산 신청일 전 일정 기간 동안 동일 수취인에게 반복 송금이 발생했는지를 탐지하는 규칙이다.
+
+테스트 위치:
+
+```text
+bankruptcy_fds/tests
+
+실행 명령:
+
+```bash
+python -m pytest bankruptcy_fds/tests -v -p no:cacheprovider
+
+collected 8 items
+8 passed
