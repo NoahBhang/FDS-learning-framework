@@ -2,6 +2,10 @@
 
 **서로 다른 두 도메인의 사기 탐지 모델을 하나의 Streamlit 애플리케이션으로 통합한 실시간 위험도 평가 시스템.**
 
+![Python](https://img.shields.io/badge/Python-100%25-3776AB?logo=python&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-20%20passed-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 ## 개요
 
 이 프로젝트는 운영 환경에 배포 가능한 사기 탐지 시스템으로, 두 가지 이질적인 도메인 특화 모델을 하나로 통합합니다.
