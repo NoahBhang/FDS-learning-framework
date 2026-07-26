@@ -21,48 +21,24 @@
 
 ## 아키텍처
 
-\`\`\`
-┌─────────────────────────────────────────────────┐
-│         Streamlit UI (scripts/app.py)            │
-│  ┌─────────────────────────────────────────┐   │
-│  │ 라디오 버튼: "파산관재인 FDS" / "은행권 FDS" │
-│  └─────────────────────────────────────────┘   │
-└──────────────┬──────────────────────────────────┘
-               │
-       ┌───────┴────────┐
-       ▼                ▼
-┌─────────────────┐  ┌────────────────────┐
-│ bankruptcy_fds  │  │ kaggle_bank_fds    │
-│ /src/models.py  │  │ /src/models/       │
-│                 │  │ predictor.py       │
-│ predict()       │  │                    │
-│ (단일 파산자,    │  │ predict()          │
-│  계층화 규칙     │  │ (배치 PaySim,      │
-│  + 2개 추가)    │  │  전체 이체 규칙    │
-│                 │  │  + 1개 추가)       │
-└────────┬────────┘  │                    │
-         │           └─────────┬──────────┘
-         │                     │
-         └──────────┬──────────┘
-                    │
-         ┌──────────▼──────────┐
-         │  통합 응답 형식     │
-         │  fraud_score: 0~1  │
-         │  triggered_rules:[]│
-         │  details: dict     │
-         │  skipped_rules: {} │
-         └─────────┬───────────┘
-                   │
-         ┌─────────▼─────────┐
-         │  render_details() │
-         │  render_downloads │
-         └─────────┬─────────┘
-                   │
-         ┌─────────▼─────────┐
-         │ 시각화 +          │
-         │ CSV/JSON 다운로드 │
-         └───────────────────┘
-\`\`\`
+```mermaid
+flowchart TD
+    UI["Streamlit UI<br/>scripts/app.py"]
+    RADIO{"모델 선택<br/>라디오 버튼"}
+    BFDS["bankruptcy_fds<br/>src/models.py → predict()<br/>단일 파산자 · 규칙 5종"]
+    KFDS["kaggle_bank_fds<br/>src/models/predictor.py → predict()<br/>배치 PaySim · 규칙 2종"]
+    RESP["통합 응답 형식<br/>fraud_score · triggered_rules<br/>details · skipped_rules"]
+    RENDER["render_details()<br/>render_downloads()"]
+    OUT["결과 시각화 + CSV/JSON 다운로드"]
+
+    UI --> RADIO
+    RADIO -->|파산관재인 FDS| BFDS
+    RADIO -->|은행권 FDS| KFDS
+    BFDS --> RESP
+    KFDS --> RESP
+    RESP --> RENDER
+    RENDER --> OUT
+```
 
 **핵심 설계 결정:**
 
