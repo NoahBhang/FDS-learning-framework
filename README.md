@@ -272,7 +272,7 @@ python kaggle_bank_fds/scripts/benchmark_fds.py
 
 **작성자:**  방경일
 
-**경력:**  쿠팡 물류 센터 6년 6개월 경험 → 퇴사 후 ML/데이터 분석 및 시스템 학습
+**경력:**  쿠팡 물류 센터 6년 7개월 경험 → 퇴사 후 ML/데이터 분석 및 시스템 학습
 
 **GitHub:**  https://github.com/NoahBhang
 
