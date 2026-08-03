@@ -48,8 +48,16 @@ class TransferCashOutRule(BaseFraudRule):
         self.amount_tolerance = amount_tolerance  # 금액 허용 오차 (수수료 감안 5%)
 
     def evaluate(self, transactions_df: pd.DataFrame, **context) -> RuleResult:
-        transfers = transactions_df[transactions_df["type"] == "TRANSFER"]
-        cashouts = transactions_df[transactions_df["type"] == "CASH_OUT"]
+        transfers = transactions_df[
+            transactions_df["type"] == "TRANSFER"
+        ].copy()
+        cashouts = transactions_df[
+            transactions_df["type"] == "CASH_OUT"
+        ].copy()
+
+        # merge 결과의 RangeIndex가 아니라 실제 원본 거래 index를 보존한다.
+        transfers["_transfer_source_index"] = list(transfers.index)
+        cashouts["_cashout_source_index"] = list(cashouts.index)
         if transfers.empty or cashouts.empty:
             return self._clean_result()
 
@@ -75,6 +83,14 @@ class TransferCashOutRule(BaseFraudRule):
         if hits.empty:
             return self._clean_result()
 
+        evidence_ids = []
+        for transfer_index, cashout_index in hits[
+            ["_transfer_source_index", "_cashout_source_index"]
+        ].itertuples(index=False, name=None):
+            for source_index in (transfer_index, cashout_index):
+                if not _contains_equal_value(evidence_ids, source_index):
+                    evidence_ids.append(source_index)
+
         top = hits.sort_values("amount_in", ascending=False).iloc[0]
         reason = (
             f"계좌 {top['nameOrig_in']}에서 {top['nameDest_in']}로 "
@@ -91,7 +107,7 @@ class TransferCashOutRule(BaseFraudRule):
             is_suspicious=True,
             risk_score=score,
             reason=reason,
-            evidence_ids=hits.index.tolist(),
+            evidence_ids=evidence_ids,
         )
 
 
@@ -140,3 +156,27 @@ class FullBalanceTransferRule(BaseFraudRule):
             reason=reason,
             evidence_ids=hits.index.tolist(),
         )
+
+
+def _contains_equal_value(values: list, candidate: object) -> bool:
+    """Hashability에 의존하지 않고 equality 기준 중복을 확인한다."""
+
+    for existing in values:
+        if existing is candidate:
+            return True
+        try:
+            comparison = existing == candidate
+        except Exception:
+            continue
+
+        try:
+            if bool(comparison):
+                return True
+        except (TypeError, ValueError):
+            try:
+                if bool(comparison.all()):
+                    return True
+            except (AttributeError, TypeError, ValueError):
+                continue
+
+    return False
