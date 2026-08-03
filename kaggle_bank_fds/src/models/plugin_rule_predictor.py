@@ -10,9 +10,14 @@ from kaggle_bank_fds.src.rules.base_rule import BaseRule
 from kaggle_bank_fds.src.rules.full_balance_transfer_rule import (
     FullBalanceTransferRule,
 )
+from kaggle_bank_fds.src.rules.rapid_repeated_transfer_rule import (
+    RapidRepeatedTransferRule,
+)
+from kaggle_bank_fds.src.rules.rounded_amount_rule import RoundedAmountRule
 from kaggle_bank_fds.src.rules.rule_engine import RuleEngine
 from kaggle_bank_fds.src.rules.rule_registry import RuleRegistry
 from kaggle_bank_fds.src.rules.rule_result import RuleResult as PluginRuleResult
+from kaggle_bank_fds.src.rules.split_transaction_rule import SplitTransactionRule
 from kaggle_bank_fds.src.rules.transfer_cash_out_rule import TransferCashOutRule
 from shared.rules.base_fraud_rule import RuleResult as LegacyRuleResult
 from shared.scoring.risk_scorer import RiskScorer
@@ -79,14 +84,36 @@ def predict_with_plugins(
     investigation = RiskScorer().aggregate("batch", legacy_results)
 
     return {
-        "fraud_score": investigation.total_score / 100.0,
+        "fraud_score": _compose_risk_score(report.results) / 100.0,
         "triggered_rules": [result.rule_name for result in investigation.findings],
         "details": details,
     }
 
 
 def _default_rules() -> list[BaseRule]:
-    return [TransferCashOutRule(), FullBalanceTransferRule()]
+    return [
+        TransferCashOutRule(),
+        FullBalanceTransferRule(),
+        RoundedAmountRule(),
+        RapidRepeatedTransferRule(),
+        SplitTransactionRule(),
+    ]
+
+
+def _compose_risk_score(results: tuple[PluginRuleResult, ...]) -> int:
+    triggered = [result for result in results if result.triggered]
+    total = sum(result.score for result in triggered)
+    by_rule_id = {result.rule_id: result for result in triggered}
+    rapid = by_rule_id.get("rapid_repeated_transfer")
+    split = by_rule_id.get("split_transaction")
+
+    if rapid is not None and split is not None:
+        rapid_ids = {item.transaction_id for item in rapid.evidence}
+        split_ids = {item.transaction_id for item in split.evidence}
+        if rapid_ids and rapid_ids == split_ids:
+            total -= min(rapid.score, split.score)
+
+    return min(100, total)
 
 
 def _validate_rules(rules: object) -> list[BaseRule]:

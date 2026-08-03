@@ -99,11 +99,27 @@ def test_repr_and_equality_are_deterministic():
     _normal(), _full(), _pair(), _pair(full=True),
     _pair(index=["transfer", "cashout"]), _pair(index=[10, 30]),
 ])
-def test_real_predictors_are_strictly_equivalent(frame):
+def test_real_predictors_report_expected_default_rule_expansion(frame):
     report = compare_legacy_and_plugin(frame)
-    assert report.strict_equivalent is True
-    assert report.equivalent is True
-    assert report.unexpected_differences == ()
+    assert report.strict_equivalent is False
+    assert report.equivalent is False
+    assert report.total_score_matches is True
+    assert report.triggered_members_match is True
+    assert report.triggered_order_matches is True
+    assert set(report.unexpected_differences) == {
+        f"{difference}:{rule_id}"
+        for rule_id in (
+            "rounded_amount",
+            "rapid_repeated_transfer",
+            "split_transaction",
+        )
+        for difference in (
+            "state_mismatch",
+            "triggered_mismatch",
+            "score_mismatch",
+            "risk_type_mismatch",
+        )
+    }
 
 
 def test_duplicate_index_is_snapshotted_without_hashing():
@@ -172,9 +188,14 @@ def test_skipped_message_is_redacted(monkeypatch):
 def test_zero_amount_pair_is_narrow_known_difference():
     report = compare_legacy_and_plugin(_pair(amount=0.0))
     assert not report.strict_equivalent
-    assert report.equivalent
+    assert not report.equivalent
     assert report.known_differences == (KnownDifference.ZERO_AMOUNT_TRANSFER_CASH_OUT,)
-    assert report.unexpected_differences == ()
+    assert "total_score_mismatch" in report.unexpected_differences
+    assert {
+        "state_mismatch:rounded_amount",
+        "state_mismatch:rapid_repeated_transfer",
+        "state_mismatch:split_transaction",
+    } <= set(report.unexpected_differences)
 
 
 def test_zero_amount_does_not_hide_unrelated_mismatch(monkeypatch):

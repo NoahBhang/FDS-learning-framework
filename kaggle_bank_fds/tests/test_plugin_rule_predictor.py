@@ -15,9 +15,17 @@ from kaggle_bank_fds.src.rules.bank_fraud_rules import (
 )
 from kaggle_bank_fds.src.rules.base_rule import BaseRule
 from kaggle_bank_fds.src.rules.evidence_item import EvidenceItem
+from kaggle_bank_fds.src.rules.full_balance_transfer_rule import (
+    FullBalanceTransferRule,
+)
 from kaggle_bank_fds.src.rules.large_transfer_rule import LargeTransferRule
+from kaggle_bank_fds.src.rules.rapid_repeated_transfer_rule import (
+    RapidRepeatedTransferRule,
+)
+from kaggle_bank_fds.src.rules.rounded_amount_rule import RoundedAmountRule
 from kaggle_bank_fds.src.rules.rule_engine import RuleEngine
 from kaggle_bank_fds.src.rules.rule_result import RuleResult
+from kaggle_bank_fds.src.rules.split_transaction_rule import SplitTransactionRule
 
 
 def _row(
@@ -169,6 +177,9 @@ def test_default_rules_order_and_large_transfer_exclusion() -> None:
     assert list(result["details"]) == [
         "transfer_cash_out",
         "full_balance_transfer",
+        "rounded_amount",
+        "rapid_repeated_transfer",
+        "split_transaction",
         "skipped_rules",
     ]
     assert "large_transfer" not in result["details"]
@@ -185,7 +196,23 @@ def test_default_rules_are_fresh_per_call(monkeypatch) -> None:
     monkeypatch.setattr(RuleEngine, "evaluate", capture)
     predict_with_plugins(_normal())
     predict_with_plugins(_normal())
+    assert [type(rule) for rule in captured[0]] == [
+        facade_module.TransferCashOutRule,
+        facade_module.FullBalanceTransferRule,
+        facade_module.RoundedAmountRule,
+        facade_module.RapidRepeatedTransferRule,
+        facade_module.SplitTransactionRule,
+    ]
     assert all(first is not second for first, second in zip(captured[0], captured[1]))
+
+
+def test_empty_custom_rules_list_replaces_defaults() -> None:
+    result = predict_with_plugins(_normal(), rules=[])
+    assert result == {
+        "fraud_score": 0.0,
+        "triggered_rules": [],
+        "details": {"skipped_rules": {}},
+    }
 
 
 def test_clean_default_result() -> None:
@@ -194,10 +221,236 @@ def test_clean_default_result() -> None:
     assert type(result["fraud_score"]) is float
     assert result["triggered_rules"] == []
     assert result["details"]["skipped_rules"] == {}
-    for rule_id in ("transfer_cash_out", "full_balance_transfer"):
+    for rule_id in (
+        "transfer_cash_out",
+        "full_balance_transfer",
+        "rounded_amount",
+        "rapid_repeated_transfer",
+        "split_transaction",
+    ):
         assert result["details"][rule_id]["is_suspicious"] is False
         assert result["details"][rule_id]["risk_score"] == 0
         assert result["details"][rule_id]["evidence_ids"] == []
+
+
+def test_rapid_split_exact_canonical_evidence_uses_max_score() -> None:
+    frame = pd.DataFrame(
+        [
+            _row(step=1, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=2, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=3, action="TRANSFER", amount=70_000, actor="A", target="B"),
+        ],
+        index=["tx-1", "tx-2", "tx-3"],
+    )
+    before = frame.copy(deep=True)
+
+    result = predict_with_plugins(
+        frame,
+        rules=[RapidRepeatedTransferRule(), SplitTransactionRule()],
+    )
+
+    assert result["triggered_rules"] == [
+        "rapid_repeated_transfer",
+        "split_transaction",
+    ]
+    assert result["details"]["rapid_repeated_transfer"]["risk_score"] == 30
+    assert result["details"]["split_transaction"]["risk_score"] == 35
+    assert result["details"]["rapid_repeated_transfer"]["evidence_ids"] == [
+        "tx-1", "tx-2", "tx-3",
+    ]
+    assert result["details"]["split_transaction"]["evidence_ids"] == [
+        "tx-1", "tx-2", "tx-3",
+    ]
+    assert result["fraud_score"] == 0.35
+    assert_frame_equal(frame, before)
+
+
+def test_rapid_only_uses_unadjusted_score() -> None:
+    frame = pd.DataFrame(
+        [
+            _row(step=1, action="TRANSFER", amount=40_000, actor="A", target="B"),
+            _row(step=2, action="TRANSFER", amount=40_000, actor="A", target="B"),
+            _row(step=3, action="TRANSFER", amount=40_000, actor="A", target="B"),
+        ]
+    )
+    result = predict_with_plugins(
+        frame,
+        rules=[RapidRepeatedTransferRule(), SplitTransactionRule()],
+    )
+    assert result["triggered_rules"] == ["rapid_repeated_transfer"]
+    assert result["fraud_score"] == 0.3
+
+
+def test_split_only_uses_unadjusted_score() -> None:
+    frame = pd.DataFrame(
+        [
+            _row(step=1, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=2, action="TRANSFER", amount=70_000, actor="A", target="C"),
+            _row(step=3, action="TRANSFER", amount=70_000, actor="A", target="D"),
+        ]
+    )
+    result = predict_with_plugins(
+        frame,
+        rules=[RapidRepeatedTransferRule(), SplitTransactionRule()],
+    )
+    assert result["triggered_rules"] == ["split_transaction"]
+    assert result["fraud_score"] == 0.35
+
+
+def test_rapid_split_partial_canonical_evidence_keeps_both_scores() -> None:
+    frame = pd.DataFrame(
+        [
+            _row(step=1, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=2, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=3, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=4, action="TRANSFER", amount=10_000, actor="A", target="C"),
+        ],
+        index=["same", "same", "same", "same"],
+    )
+    before = frame.copy(deep=True)
+
+    result = predict_with_plugins(
+        frame,
+        rules=[RapidRepeatedTransferRule(), SplitTransactionRule()],
+    )
+
+    assert result["details"]["rapid_repeated_transfer"]["evidence_ids"] == ["same"]
+    assert result["details"]["split_transaction"]["evidence_ids"] == ["same"]
+    assert result["fraud_score"] == 0.65
+    assert_frame_equal(frame, before)
+
+
+def test_exact_overlap_score_is_order_independent_but_details_order_is_not() -> None:
+    frame = pd.DataFrame(
+        [
+            _row(step=1, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=2, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=3, action="TRANSFER", amount=70_000, actor="A", target="B"),
+        ]
+    )
+    result = predict_with_plugins(
+        frame,
+        rules=[SplitTransactionRule(), RapidRepeatedTransferRule()],
+    )
+    assert result["fraud_score"] == 0.35
+    assert result["triggered_rules"] == [
+        "split_transaction",
+        "rapid_repeated_transfer",
+    ]
+    assert list(result["details"]) == [
+        "split_transaction",
+        "rapid_repeated_transfer",
+        "skipped_rules",
+    ]
+
+
+def test_correlated_rule_failure_skips_adjustment() -> None:
+    class FailingRapidRule(FailureRule):
+        rule_id = "rapid_repeated_transfer"
+        rule_name = "Failing Rapid Rule"
+
+    frame = pd.DataFrame(
+        [
+            _row(step=1, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=2, action="TRANSFER", amount=70_000, actor="A", target="C"),
+            _row(step=3, action="TRANSFER", amount=70_000, actor="A", target="D"),
+        ]
+    )
+    result = predict_with_plugins(
+        frame,
+        rules=[FailingRapidRule(), SplitTransactionRule()],
+    )
+    assert result["fraud_score"] == 0.35
+    assert result["triggered_rules"] == ["split_transaction"]
+    assert result["details"]["skipped_rules"] == {
+        "rapid_repeated_transfer": "facade boom",
+    }
+
+
+def test_empty_correlated_evidence_does_not_adjust_triggered_peer() -> None:
+    class CleanRapidRule(CleanRule):
+        rule_id = "rapid_repeated_transfer"
+        rule_name = "Clean Rapid Rule"
+
+    frame = pd.DataFrame(
+        [
+            _row(step=1, action="TRANSFER", amount=70_000, actor="A", target="B"),
+            _row(step=2, action="TRANSFER", amount=70_000, actor="A", target="C"),
+            _row(step=3, action="TRANSFER", amount=70_000, actor="A", target="D"),
+        ]
+    )
+    result = predict_with_plugins(
+        frame,
+        rules=[CleanRapidRule(), SplitTransactionRule()],
+    )
+    assert result["details"]["rapid_repeated_transfer"]["evidence_ids"] == []
+    assert result["fraud_score"] == 0.35
+
+
+def test_exact_correlated_adjustment_is_applied_before_total_cap() -> None:
+    class TransferFortyRule(EvidenceRule):
+        rule_id = "transfer_cash_out"
+        rule_name = "Transfer Forty Rule"
+        score = 40
+
+    class FullThirtyRule(EvidenceRule):
+        rule_id = "full_balance_transfer"
+        rule_name = "Full Thirty Rule"
+        score = 30
+
+    class RapidThirtyRule(EvidenceRule):
+        rule_id = "rapid_repeated_transfer"
+        rule_name = "Rapid Thirty Rule"
+        score = 30
+
+    class SplitThirtyFiveRule(EvidenceRule):
+        rule_id = "split_transaction"
+        rule_name = "Split Thirty Five Rule"
+        score = 35
+
+    result = predict_with_plugins(
+        _normal(),
+        rules=[
+            TransferFortyRule(),
+            FullThirtyRule(),
+            RapidThirtyRule(),
+            SplitThirtyFiveRule(),
+        ],
+    )
+    assert result["fraud_score"] == 1.0
+    assert [result["details"][rule_id]["risk_score"] for rule_id in (
+        "transfer_cash_out",
+        "full_balance_transfer",
+        "rapid_repeated_transfer",
+        "split_transaction",
+    )] == [40, 30, 30, 35]
+
+
+def test_unrelated_exact_evidence_overlap_keeps_both_scores() -> None:
+    frame = pd.DataFrame(
+        [
+            _row(
+                step=1,
+                action="TRANSFER",
+                amount=100_000,
+                actor="A",
+                target="B",
+                balance=100_000,
+            )
+        ],
+        index=["same-transaction"],
+    )
+
+    result = predict_with_plugins(
+        frame,
+        rules=[RoundedAmountRule(), FullBalanceTransferRule()],
+    )
+
+    assert result["triggered_rules"] == [
+        "rounded_amount",
+        "full_balance_transfer",
+    ]
+    assert result["fraud_score"] == 0.4
 
 
 def test_single_transfer_cashout_result() -> None:
