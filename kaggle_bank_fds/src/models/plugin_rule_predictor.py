@@ -36,6 +36,20 @@ def predict_with_plugins(
 ) -> dict:
     """Run Plugin Rules on raw PaySim rows and return the Legacy dict shape."""
 
+    prediction, _, _, _ = _execute_plugin_analysis(
+        transaction_data,
+        rules=rules,
+    )
+    return prediction
+
+
+def _execute_plugin_analysis(
+    transaction_data: pd.DataFrame,
+    *,
+    rules: list[BaseRule] | None = None,
+):
+    """Return facade output plus lossless internal execution data."""
+
     if not isinstance(transaction_data, pd.DataFrame):
         raise TypeError("transaction_data must be a pandas DataFrame.")
     if transaction_data.empty:
@@ -83,11 +97,12 @@ def predict_with_plugins(
     }
     investigation = RiskScorer().aggregate("batch", legacy_results)
 
-    return {
+    prediction = {
         "fraud_score": _compose_risk_score(report.results) / 100.0,
         "triggered_rules": [result.rule_name for result in investigation.findings],
         "details": details,
     }
+    return prediction, canonical, report, tuple(active_rules)
 
 
 def _default_rules() -> list[BaseRule]:
