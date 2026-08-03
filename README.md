@@ -1,6 +1,10 @@
 # 이중 모델 사기 탐지 시스템 (FDS)
+![Python](https://img.shields.io/badge/Python-100%25-3776AB?logo=python&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-pytest-blue?logo=pytest)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 **서로 다른 두 도메인의 사기 탐지 모델을 하나의 Streamlit 애플리케이션으로 통합한 실시간 위험도 평가 시스템.**
+
 
 ## 개요
 
@@ -268,7 +272,7 @@ python kaggle_bank_fds/scripts/benchmark_fds.py
 
 **작성자:**  방경일
 
-**경력:**  쿠팡 물류 센터 6년 6개월 경험 → 퇴사 후 ML/데이터 분석 및 시스템 학습
+**경력:**  쿠팡 물류 센터 6년 7개월 경험 → 퇴사 후 ML/데이터 분석 및 시스템 학습
 
 **GitHub:**  https://github.com/NoahBhang
 
