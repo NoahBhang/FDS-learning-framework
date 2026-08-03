@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
 *$py.class
 *.so
 .Python
@@ -16,6 +17,9 @@ build/
 *.swp
 *.swo
 
+# Local tooling
+/.codex/
+
 # Data & Logs
 *.csv
 *.log
@@ -23,6 +27,11 @@ data/
 logs/
 *.db
 *.sqlite
+/paysim1.zip
+
+# Generated model artifacts
+/models/
+*.joblib
 
 # Environment
 .env
