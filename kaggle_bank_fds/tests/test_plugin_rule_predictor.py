@@ -205,7 +205,7 @@ def test_single_transfer_cashout_result() -> None:
     assert result["fraud_score"] == 0.25
     assert result["triggered_rules"] == ["transfer_cash_out"]
     detail = result["details"]["transfer_cash_out"]
-    assert detail["risk_type"] == "이체 후 현금화 의심"
+    assert detail["risk_type"] == "이체 후 즉시 현금화 의심"
     assert detail["risk_score"] == 25
     assert detail["is_suspicious"] is True
     assert detail["reason"]
@@ -234,6 +234,30 @@ def test_both_default_rules_and_legacy_score_equivalence() -> None:
     for rule_id in plugin["triggered_rules"]:
         assert plugin["details"][rule_id]["risk_score"] == legacy["details"][rule_id]["risk_score"]
         assert plugin["details"][rule_id]["evidence_ids"] == legacy["details"][rule_id]["evidence_ids"]
+
+
+def test_default_risk_types_match_legacy_public_contract() -> None:
+    frame = _normal()
+    legacy = legacy_predict(frame)
+    plugin = predict_with_plugins(frame)
+
+    assert (
+        legacy["details"]["transfer_cash_out"]["risk_type"]
+        == "이체 후 즉시 현금화 의심"
+    )
+    assert (
+        plugin["details"]["transfer_cash_out"]["risk_type"]
+        == "이체 후 즉시 현금화 의심"
+    )
+    assert (
+        legacy["details"]["transfer_cash_out"]["risk_type"]
+        == plugin["details"]["transfer_cash_out"]["risk_type"]
+    )
+    assert (
+        legacy["details"]["full_balance_transfer"]["risk_type"]
+        == plugin["details"]["full_balance_transfer"]["risk_type"]
+        == "계좌 전액 이체 의심"
+    )
 
 
 @pytest.mark.parametrize("cashout_count,score", [(2, 0.3), (3, 0.35), (4, 0.4), (8, 0.4)])

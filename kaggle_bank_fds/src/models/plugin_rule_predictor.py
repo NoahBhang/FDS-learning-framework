@@ -19,7 +19,7 @@ from shared.scoring.risk_scorer import RiskScorer
 
 
 _COMPATIBILITY_RISK_TYPES = {
-    "transfer_cash_out": "이체 후 현금화 의심",
+    "transfer_cash_out": "이체 후 즉시 현금화 의심",
     "full_balance_transfer": "계좌 전액 이체 의심",
 }
 
