@@ -27,7 +27,16 @@ data/
 logs/
 *.db
 *.sqlite
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*-wal
+*-shm
 /paysim1.zip
+
+# Versioned, reproducible Bank FDS demo inputs
+!kaggle_bank_fds/examples/
+!kaggle_bank_fds/examples/*.csv
 
 # Generated model artifacts
 /models/

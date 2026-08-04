@@ -1,0 +1,2 @@
+step,type,amount,nameOrig,oldbalanceOrg,newbalanceOrig,nameDest,oldbalanceDest,newbalanceDest
+1,TRANSFER,100000.0,SYNTH_ROUNDED_ORIG,100000.0,0.0,SYNTH_ROUNDED_DEST,0.0,100000.0

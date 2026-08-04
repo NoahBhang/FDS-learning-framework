@@ -1,285 +1,224 @@
-# 이중 모델 사기 탐지 시스템 (FDS)
-![Python](https://img.shields.io/badge/Python-100%25-3776AB?logo=python&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-pytest-blue?logo=pytest)
-![License](https://img.shields.io/badge/license-MIT-blue)
+# Bank FDS Model
 
-**서로 다른 두 도메인의 사기 탐지 모델을 하나의 Streamlit 애플리케이션으로 통합한 실시간 위험도 평가 시스템.**
+_Explainable Rule-Based Fraud Detection with SQLite Persistence and Streamlit Operations_
 
+PaySim 합성 거래를 canonical schema로 표준화하고, 설명 가능한 5개 Rule의 거래 단위 Evidence와 판정 결과를 SQLite에 원자적으로 저장한 뒤 Streamlit에서 과거 Alert를 동일한 의미와 순서로 재조회하는 규칙 기반 금융 이상징후 탐지 포트폴리오입니다.
 
-## 개요
+## 핵심 가치
 
-이 프로젝트는 운영 환경에 배포 가능한 사기 탐지 시스템으로, 두 가지 이질적인 도메인 특화 모델을 하나로 통합합니다.
+- **설명 가능한 판정:** 최종 점수뿐 아니라 Rule별 원점수, reason, 거래 단위 Evidence를 제공합니다.
+- **일관된 거래 정체성:** 입력 행을 canonical transaction ID로 연결해 분석부터 저장·재조회까지 의미를 보존합니다.
+- **부분 실패 격리:** Rule 하나가 실패해도 성공한 Rule의 분석은 계속되고 오류가 별도로 기록됩니다.
+- **원자적 저장:** 분석 run, 거래 snapshot, finding, Evidence, 오류를 하나의 SQLite 저장 경계에서 처리합니다.
+- **운영 흐름 검증:** 신규 분석, 명시적 재분석, Alert 이력 및 상세 재조회를 Streamlit에서 제공합니다.
 
-- **파산관재인 FDS**  (`bankruptcy_fds`): 파산 사건의 의심 거래 패턴을 탐지하는 규칙 기반 시스템 (계층화 거래, 관계자 거래, 분산 이체, 거래 속도 급증, 시간대 이상)
-- **은행권 FDS**  (`kaggle_bank_fds`): PaySim 거래 패턴을 이용한 사기 탐지 (전체 잔액 이체, 이체 후 즉시 현금화)
+`bankruptcy_fds/`와 `scripts/app.py`는 별도 도메인 실험 및 legacy smoke UI입니다. 이 저장소의 주 포트폴리오 진입점은 아래 Bank FDS vertical slice입니다.
 
-### 프로젝트의 의미
+## Demo 화면
 
-물류 산업에서 **6년 7개월간 실무 경험**을 쌓는 동시에, 한국방송통신대학교 융합경영학부(마케팅/애널리틱스 전공)에 편입하여 데이터 분석 수업을 듣게 되었습니다. 그 과정에서 금융 거래 데이터의 패턴 분석이 얼마나 중요한지 알게 되었습니다.
+![Exact overlap 분석 결과](docs/images/bank-fds-risk-result.png)
 
-더 깊이 있게 현실을 이해하기 위해, 파산 관재인 업무를 담당하는 변호사 형에게 실무 이야기를 듣기 시작했습니다. 형으로부터 관재인 업무 수행 중 부정거래 탐지의 비효율성과 그로 인한 조사 비용 증가, 의심 거래의 적시 적발 어려움 등 여러 Pain Point를 알게 되었습니다.
+_Rapid와 Split이 동일한 3개 거래를 Evidence로 탐지하고 Policy B에 따라 최종 35/100으로 합성된 실제 Streamlit 결과입니다. 업로드와 Alert 재조회 화면은 [3~5분 Demo Guide](docs/demo-guide.md)에서 이어집니다._
 
-결론적으로, **물류 도메인과 법금융 도메인 모두에서 사기 탐지 기술이 얼마나 중요한 문제인지**  깨달았습니다. 이러한 문제 의식과 호기심을 바탕으로 이 프로젝트를 기획하고 진행하게 되었습니다.
+## 빠른 실행
 
----
-
-## 아키텍처
-
-```mermaid
-flowchart TD
-    UI["Streamlit UI<br/>scripts/app.py"]
-    RADIO{"모델 선택<br/>라디오 버튼"}
-    BFDS["bankruptcy_fds<br/>src/models.py -> predict()<br/>단일 파산자 · 규칙 5종"]
-    KFDS["kaggle_bank_fds<br/>src/models/predictor.py -> predict()<br/>배치 PaySim · 규칙 2종"]
-    RESP["통합 응답 형식<br/>fraud_score · triggered_rules<br/>details · skipped_rules"]
-    RENDER["render_details()<br/>render_downloads()"]
-    OUT["결과 시각화 + CSV/JSON 다운로드"]
-
-    UI --> RADIO
-    RADIO -->|파산관재인 FDS| BFDS
-    RADIO -->|은행권 FDS| KFDS
-    BFDS --> RESP
-    KFDS --> RESP
-    RESP --> RENDER
-    RENDER --> OUT
-```
-
-**핵심 설계 결정**
-
-1. **통합된 predict() 인터페이스**  — 두 모델 모두 `{fraud_score, triggered_rules, details}` 형태로 반환
-2. **규칙별 결함 격리**  — 각 규칙을 try-except로 감싸서 한 규칙의 실패가 전체 파이프라인을 멈추지 않음
-3. **도메인 매핑**  — `render_details()`와 `render_downloads()`가 스키마 차이 처리 (거래ID 존재 여부, evidence_ids 의미 차이)
-
----
-
-## 핵심 기능
-
-### 견고한 에러 처리
-
-- **규칙 단위 격리**: 문제 있는 규칙 감지 → 로깅 → `skipped_rules`에 기록
-- **우아한 성능 저하**: 성공한 규칙으로만 사기 점수 계산
-- **추적 가능성**: 모든 스킵된 규칙과 에러 메시지는 JSON 파일에 보존
-
-### 통합 Streamlit UI
-
-- **모델 선택**: 라디오 버튼으로 파산/은행 모델 전환
-- **유연한 입력**: CSV 업로드 또는 도메인별 샘플 데이터 사용
-- **결과 시각화**: 사기 점수 메트릭, 적용 규칙 목록, 규칙별 상세 (펼침 가능)
-- **이중 내보내기**: CSV (보고용) 또는 JSON (상세 분석용) 다운로드
-
-### 테스트 주도 개발
-
-- **bankruptcy_fds**: 16개 테스트 통과 (규칙별 정상/경계/예외 케이스)
-- **kaggle_bank_fds**: 4개 테스트 통과 (정상 케이스, 빈 데이터, 규칙 실패 격리)
-- **회귀 방지**: 규칙이 예상치 않게 실패해도 나머지 판단은 유지되는지 검증
-
----
-
-## 기술 스택
-
-| 요소 | 기술 | 목적 |
-|------|------|------|
-| 백엔드 | Python 3.11 | 핵심 로직 |
-| UI | Streamlit | 대시보드 |
-| 데이터 | pandas, numpy | 거래 처리 |
-| 규칙 | 커스텀 규칙 엔진 | 사기 탐지 |
-| 점수화 | RiskScorer 클래스 | 위험도 통합 |
-| 테스트 | pytest | 자동 검증 |
-| 개발 환경 | PyCharm + Claude Code MCP | 개발 도구 |
-| 버전 관리 | Git | 저장소 관리 |
-
----
-
-## 빠른 시작
-
-### 설치
+macOS/Linux에서 저장소 root를 기준으로 실행합니다. 별도 `PYTHONPATH` 설정은 필요하지 않습니다.
 
 ```bash
-git clone https://github.com/NoahBhang/FDS-learning-framework.git
-cd FDS-learning-framework
+git clone https://github.com/NoahBhang/FDS_Model.git
+cd FDS_Model
 
 python3.11 -m venv .venv
 source .venv/bin/activate
-
 pip install -r requirements.txt
+
+python -m streamlit run kaggle_bank_fds/src/ui/streamlit_app.py
 ```
 
-### 앱 실행
+기본 DB는 `~/.fds_model/bank_fds.sqlite3`입니다. 첫 실행에서 parent directory와 schema v1을 준비하며 앱 종료 후에도 DB는 유지됩니다. DB 파일은 Git에 포함하지 않습니다.
+
+명시적인 DB 경로를 사용하려면:
 
 ```bash
-streamlit run scripts/app.py
+BANK_FDS_DB_PATH=/absolute/path/bank_fds.sqlite3 \
+python -m streamlit run kaggle_bank_fds/src/ui/streamlit_app.py
 ```
 
-브라우저에서 http://localhost:8501 이 자동으로 열립니다.
+Windows PowerShell:
 
-### 테스트 실행
+```powershell
+$env:BANK_FDS_DB_PATH="C:\path\bank_fds.sqlite3"
+python -m streamlit run kaggle_bank_fds/src/ui/streamlit_app.py
+```
+
+## Demo CSV
+
+[`kaggle_bank_fds/examples/`](kaggle_bank_fds/examples/)의 합성 CSV를 Streamlit uploader에 바로 사용할 수 있습니다.
+
+| 파일 | 목적 | 최종 위험점수 | 탐지 Rule | Alert |
+|---|---|---:|---|---|
+| [`clean.csv`](kaggle_bank_fds/examples/clean.csv) | 정상 분석 | 0/100 | 없음 | 미생성 |
+| [`exact_overlap.csv`](kaggle_bank_fds/examples/exact_overlap.csv) | Rapid/Split Evidence 완전 중복 | 35/100 | Rapid, Split | 생성 |
+| [`partial_overlap.csv`](kaggle_bank_fds/examples/partial_overlap.csv) | Rapid/Split 부분 중복 | 65/100 | Rapid, Split | 생성 |
+| [`rounded_full_balance.csv`](kaggle_bank_fds/examples/rounded_full_balance.csv) | 독립 Rule 중첩 | 40/100 | FullBalance, Rounded | 생성 |
+
+파일은 다음 명령으로 결정적으로 재생성할 수 있으며 generator output과 tracked CSV의 bytes가 테스트로 고정됩니다.
 
 ```bash
-python -m pytest bankruptcy_fds/tests/ kaggle_bank_fds/tests/ -v
+python kaggle_bank_fds/scripts/generate_demo_data.py
 ```
 
-### 사용해보기
+모든 예제는 자체 생성한 synthetic data입니다. 위험점수는 사기 발생 확률이 아닙니다.
 
-1. **모델 선택** — 왼쪽 사이드바에서 라디오 버튼 클릭
-2. **데이터 업로드** — CSV 업로드 또는 샘플 데이터 사용
-3. **결과 확인** — 사기 점수, 적용 규칙, 규칙별 상세 정보
-4. **내보내기** — CSV 또는 JSON 다운로드 버튼 클릭
+## 사용자 Workflow
 
----
+1. PaySim CSV를 업로드합니다.
+2. 파일 크기, 행·열 수와 preview를 확인합니다.
+3. 분석을 실행하고 0~100 규칙 기반 위험점수를 확인합니다.
+4. 탐지 Rule의 원점수와 reason을 확인합니다.
+5. Rule별 Evidence 거래를 확인합니다.
+6. 저장된 위험 run은 Alert 이력에서 동일한 결과로 재조회합니다.
 
-## 프로젝트 구조
+분석 run은 SQLite에 저장되며 clean run도 보존됩니다. clean run에는 Alert가 생성되지 않습니다. 일반 Streamlit rerun은 중복 분석을 만들지 않고, 같은 파일의 새 run은 **같은 파일 다시 분석** 버튼을 명시적으로 눌렀을 때만 생성됩니다.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    A["CSV Upload"] --> B["CSV Preflight"]
+    B --> C["PaySim Adapter"]
+    C --> D["Canonical Transaction Schema"]
+    D --> E["Rule Engine"]
+    E --> F["Risk Composition"]
+    F --> G["Typed Artifact"]
+    G --> H["SQLite Repository"]
+    H --> I["Typed Read Models"]
+    I --> J["Presenter"]
+    J --> K["Streamlit"]
 ```
+
+- **Adapter Pattern:** PaySim 입력을 Rule이 공유하는 canonical schema로 변환합니다.
+- **Canonical identity:** source position과 별개의 안정적인 transaction ID로 Evidence를 연결합니다.
+- **Immutable artifact:** 분석 결과를 검증된 typed snapshot으로 저장 계층에 전달합니다.
+- **Rule failure isolation:** 실패한 Rule을 기록하고 성공한 결과는 유지합니다.
+- **Atomic persistence:** 한 분석의 저장을 하나의 SAVEPOINT로 처리합니다.
+- **Semantic round-trip:** typed read model이 Rule/Evidence의 의미와 순서를 복원합니다.
+- **Operation-scoped lifecycle:** UI 작업마다 repository를 열고 확실히 닫습니다.
+- **Duplicate prevention:** 일반 rerun과 명시적 재분석을 구분합니다.
+
+상세 설계는 [Architecture 문서](docs/architecture.md)를 참고하세요.
+
+## Detection Rules
+
+기본 Rule은 아래 순서로 매 실행마다 새 instance가 생성됩니다.
+
+| 순서 | Rule ID | 사용자용 이름 | 탐지 패턴 | 원점수 | Evidence |
+|---:|---|---|---|---:|---|
+| 1 | `transfer_cash_out` | Transfer Cash-Out | Transfer 후 24 step 내 유사 금액 Cash-Out | 20 + pair당 5, 최대 40 | 매칭된 Transfer와 Cash-Out 거래 |
+| 2 | `full_balance_transfer` | Full Balance Transfer | 이전 잔액의 99.9% 이상 Transfer | 15 + 건당 5, 최대 30 | 전액 이체 조건을 만족한 거래 |
+| 3 | `rounded_amount` | Rounded Amount | 100,000 이상이며 10,000 단위인 Transfer/Cash-Out | 20 | 라운드 금액 거래 |
+| 4 | `rapid_repeated_transfer` | Rapid Repeated Transfer | 동일 송·수신 계좌, 24 step 내 3건 이상, 합계 100,000 이상 | 30 | 해당 반복 이체 window의 거래 |
+| 5 | `split_transaction` | Split Transaction | 동일 송신자의 100,000 미만 Transfer, 24 step 내 3건 이상·합계 200,000 이상 | 35 | 해당 분할 이체 window의 eligible 거래 |
+
+## Score Composition
+
+위험점수는 탐지된 Rule의 원점수를 합성한 0~100 규칙 기반 지표이며 사기 발생 확률이 아닙니다. 내부 값은 `0.0~1.0`, UI 표시는 `0~100` 형식입니다. 개별 Rule 원점수는 보존되며 risk level calibration은 적용하지 않습니다.
+
+**Policy B:** Rapid와 Split의 canonical Evidence 집합이 비어 있지 않고 정확히 같으면 동일 패턴의 중복 반영을 줄이기 위해 두 점수의 합 대신 더 큰 점수만 최종점수에 반영합니다.
+
+- Exact overlap: Rapid 30 + Split 35 → 최종 35
+- Partial overlap: Rapid 30 + Split 35 → 최종 65
+- Independent overlap: FullBalance 20 + Rounded 20 → 최종 40
+- 모든 합성 결과는 100을 상한으로 제한합니다.
+
+## Persistence Design
+
+SQLite schema version 1은 다음 6개 table로 구성됩니다.
+
+- `analysis_runs`
+- `transaction_snapshots`
+- `alerts`
+- `rule_findings`
+- `finding_evidence`
+- `rule_execution_errors`
+
+전체 분석 저장은 하나의 SAVEPOINT 안에서 수행되며 실패하면 해당 run 전체가 rollback됩니다. FK/CHECK/UNIQUE 제약으로 참조와 값 계약을 검증합니다. clean run도 저장하지만 위험 run만 Alert를 생성합니다. Evidence는 canonical transaction ID로 거래 snapshot에 연결되고 Rule/Evidence 순서가 보존됩니다. typed read model은 저장된 결과를 동일한 의미로 복원합니다.
+
+`database/schema.sql`은 Bankruptcy legacy schema이며 이 Bank FDS schema v1의 근거가 아닙니다.
+
+## CSV 입력 계약
+
+UTF-8 CSV에 다음 PaySim column이 필요합니다.
+
+```text
+step
+type
+amount
+nameOrig
+oldbalanceOrg
+newbalanceOrig
+nameDest
+oldbalanceDest
+newbalanceDest
+```
+
+- 최대 10,000행, 20MiB
+- extra column은 preflight에서 허용될 수 있으나 demo와 권장 형식은 위 9개 column만 사용
+- 상세 dtype과 값 계약은 PaySim Adapter에서 검증
+- 업로드 원본은 별도 디스크 파일로 저장하지 않음
+- Evidence 화면 표시는 Rule별 최대 200건
+
+## Testing
+
+Bank FDS 앱 실행에는 `requirements.txt`만 필요합니다. ML training module을 import하는 전체 repository test suite를 실행하려면 개발·ML 의존성을 추가로 설치합니다.
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q -p no:cacheprovider
+```
+
+2026-08-04 Portfolio Delivery Phase 5 기준 fresh Python 3.11 환경에서 1,119개 테스트를 통과했습니다. 테스트 수는 기능 추가에 따라 변경될 수 있습니다. 검증 범위에는 model validation, Rule overlap, canonical Evidence, schema migration, atomic rollback, SQL injection 방어, corruption detection, N+1 방지, Streamlit AppTest, rerun 중복 저장 방지, headless runtime smoke, demo semantic contract가 포함됩니다.
+
+## Performance Notes
+
+M5 Mac 로컬 개발 환경의 10,000행 synthetic fixture에서 CSV parse부터 분석·SQLite 저장·typed 재조회·presenter 변환까지 약 0.68초가 측정됐습니다. 이는 운영 SLA나 일반 benchmark가 아니며 입력 패턴과 환경에 따라 달라집니다. 10,000 Evidence 상세 조회는 SELECT 7회로 검증했고 화면에는 최대 200건만 materialize합니다. 일반 rerun은 run/Alert 수를 증가시키지 않습니다.
+
+## Project Structure
+
+```text
 FDS_Model/
-├── bankruptcy_fds/
-│   ├── src/
-│   │   ├── models.py                    # predict() 진입점
-│   │   ├── pipelines/
-│   │   │   └── fraud_detection_pipeline.py
-│   │   ├── rules/
-│   │   │   ├── layering.py              # 계층화 자금 이동
-│   │   │   ├── related_party.py         # 관계자 거래
-│   │   │   ├── split_transfer.py        # 분산 이체
-│   │   │   ├── velocity_spike.py        # 거래 속도 급증
-│   │   │   └── temporal_anomaly.py      # 야간·주말 집중
-│   │   ├── scoring/
-│   │   │   └── risk_scorer.py
-│   │   └── ui/
-│   ├── data/
-│   │   └── sample_transactions.csv
-│   └── tests/                           # 16개 테스트
-│
 ├── kaggle_bank_fds/
+│   ├── examples/
+│   ├── scripts/
 │   ├── src/
+│   │   ├── adapters/
 │   │   ├── models/
-│   │   │   └── predictor.py             # predict() 진입점
+│   │   ├── persistence/
 │   │   ├── rules/
-│   │   │   ├── full_balance_transfer.py
-│   │   │   └── transfer_cash_out.py
-│   │   ├── scoring/
-│   │   │   └── risk_scorer.py
-│   │   └── evaluation/
-│   ├── tests/                           # 4개 테스트
-│   └── scripts/
-│       ├── run_demo.py
-│       └── benchmark_fds.py
-│
-├── scripts/
-│   └── app.py                           # 통합 Streamlit UI
-│
-├── shared/
-│   ├── models/
-│   │   ├── debtor.py
-│   │   └── transaction.py
-│   └── rules/
-│       └── base_fraud_rule.py
-│
-├── database/
-│   ├── schema.sql
-│   └── verified_window_functions.sql
-│
-├── .gitignore
-├── README.md
-├── CLAUDE.md
+│   │   ├── services/
+│   │   └── ui/
+│   └── tests/
+├── bankruptcy_fds/          # 별도 도메인 실험
+├── scripts/app.py           # legacy smoke UI
+├── docs/
+├── LICENSE
 └── requirements.txt
 ```
 
----
+## Portfolio v1 Scope
 
-## 설계상의 도전 과제와 해결
+구현 범위는 Rule-based detection, explainable Evidence, canonical transaction identity, SQLite persistence, Streamlit operations UI, Alert history, Rule failure isolation, typed semantic round-trip입니다.
 
-### 문제: 호환되지 않는 두 모델, 하나의 UI
+다음은 Portfolio v1의 명시적 비목표입니다: calibrated ML probability, authentication/authorization, 개인정보 masking/encryption, Alert status workflow, 검색·pagination, multi-user concurrency, external production DB, real bank data, deployment/monitoring, 법률·컴플라이언스 검증.
 
-- `bankruptcy_fds`는 단일 파산자 컨텍스트가 필요합니다 (LayeringRule의 BFS가 출발 노드를 요구)
-- `kaggle_bank_fds`는 배치 지향입니다 (PaySim은 계좌 간 self-merge와 집계 기반)
-- 스키마 불일치: 파산자 ID 존재 여부, `evidence_ids`의 의미 차이, 규칙 의존성
+## Data Source and License
 
-### 해결
+PaySim 형식의 합성 거래 스키마를 사용합니다. 포함된 예제 CSV는 본 프로젝트가 자체 생성한 synthetic demo이며 실제 고객·계좌·은행 정보가 없습니다. 외부 PaySim 원본의 출처·라이선스 상세는 저장소 내 근거를 추가 확인한 뒤 문서화할 항목입니다.
 
-1. **통합 predict() 시그니처**  — 내부 복잡성을 일관된 인터페이스 뒤에 숨김
-2. **도메인 인식 렌더링**  — 같은 `render_details()`가 두 모델을 모두 처리하되, 증거 열 로직만 모델별로 분기 (`evidence_col=None`이면 행 인덱스로 매핑)
-3. **결함 격리**  — 규칙 실패를 `skipped_rules`에 기록하고 나머지 판단은 계속 진행
+프로젝트 코드는 [MIT License](LICENSE)를 따릅니다.
 
-### 왜 이 문제가 중요한가
+## Further Reading
 
-부정거래 탐지 실무에서는 서로 다른 출처의 규칙과 모델이 계속 추가됩니다. 이때 각 모델의 스키마를 하나로 강제하는 대신, 서빙 계층에서 인터페이스를 통일하고 도메인 차이는 렌더링 단계에서 흡수하는 방식이 유지보수 비용을 낮춥니다. 또한 규칙 하나가 실패했을 때 전체 판단이 중단되면 조사 자체가 멈추므로, 부분 실패를 감수하되 그 사실을 명시적으로 드러내는 설계가 실무에 더 적합합니다.
-
----
-
-## 향후 로드맵
-
-### 1. 규칙 확장
-
-파산관재인 FDS에 추가 예정인 탐지 패턴:
-
-- 교차 파산자 담합 (그래프 알고리즘 기반 네트워크 분석)
-- 자산 은닉 의심 패턴 (신청일 직전 대규모 처분)
-
-### 2. 배치 처리 병렬화
-
-순차 처리를 `ProcessPoolExecutor` 기반으로 전환합니다. 현재 O(n) 순차 처리를 O(n/P) 병렬 처리로 개선하는 것이 목표입니다 (P는 프로세스 수).
-
-벤치마크 환경: MacBook Air M5, 파산자 1000명 기준
-
-### 3. 설명 가능성 강화
-
-SHAP/LIME을 적용해 어느 규칙 요소가 사기 점수에 가장 크게 기여했는지 시각화합니다. 관재인이 판단 근거를 검증할 수 있어야 실제 조사에 활용 가능합니다.
-
-### 4. 데이터 파이프라인 연계
-
-현재는 CSV 입력 기반이며, 실제 거래 데이터베이스와 연결하는 어댑터 계층을 추가할 예정입니다.
-
----
-
-## 개발자를 위한 안내
-
-### 새로운 규칙 추가
-
-```python
-# bankruptcy_fds/src/rules/my_new_rule.py
-from shared.rules import BaseFraudRule
-
-class MyNewRule(BaseFraudRule):
-    rule_name = "my_new_rule"
-
-    def evaluate(self, transaction_data, filing_date, debtor_id):
-        # 판단 로직 작성
-        return FraudRuleResult(...)
-```
-
-작성한 규칙을 `bankruptcy_fds/src/models.py`의 `DEFAULT_RULES`에 등록합니다.
-
-```python
-DEFAULT_RULES = [
-    SplitTransferRule(),
-    RelatedPartyRule(),
-    LayeringRule(),
-    VelocitySpikeRule(),
-    TemporalAnomalyRule(),
-    MyNewRule(),
-]
-```
-
-### 성능 프로파일링
-
-```bash
-python kaggle_bank_fds/scripts/benchmark_fds.py
-```
-
----
-
-## 연락처
-
-**작성자:**  방경일
-
-**경력:**  쿠팡 물류 센터 6년 7개월 경험 → 퇴사 후 ML/데이터 분석 및 시스템 학습
-
-**GitHub:**  https://github.com/NoahBhang
-
-**포트폴리오:**  https://github.com/NoahBhang/FDS-learning-framework
-
----
-
-## 라이선스
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다.
+- [Architecture](docs/architecture.md)
+- [3~5분 Demo Guide](docs/demo-guide.md)
+- [Demo CSV 안내](kaggle_bank_fds/examples/README.md)
