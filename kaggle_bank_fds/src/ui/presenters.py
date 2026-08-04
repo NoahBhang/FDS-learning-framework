@@ -34,6 +34,35 @@ _STATUS_TEXT = {
     "CONFIRMED": "이상 확정",
     "DISMISSED": "정상 처리",
 }
+_RISK_TYPE_TEXT = {
+    "transfer_cash_out": "이체 후 현금화 의심",
+    "full_balance_transfer": "계좌 잔액 대부분 이체",
+    "rounded_amount": "고액 라운드 금액 거래",
+    "rapid_repeated_transfer": "단기간 반복 이체",
+    "split_transaction": "분할 이체 의심",
+}
+_USER_REASON_TEXT = {
+    "transfer_cash_out": (
+        "이체 후 유사한 금액이 현금화된 거래 관계를 탐지했습니다.",
+        "설정된 시간 범위 안에서 이체 후 현금화 패턴을 탐지하지 않았습니다.",
+    ),
+    "full_balance_transfer": (
+        "이체 전 잔액의 대부분을 보낸 거래 {evidence_count}건을 탐지했습니다.",
+        "이체 전 잔액의 대부분을 보내는 거래를 탐지하지 않았습니다.",
+    ),
+    "rounded_amount": (
+        "설정된 기준 이상의 라운드 금액 거래 {evidence_count}건을 탐지했습니다.",
+        "설정된 기준 이상의 라운드 금액 거래를 탐지하지 않았습니다.",
+    ),
+    "rapid_repeated_transfer": (
+        "동일 계좌 사이에서 단기간 반복된 이체 거래 {evidence_count}건을 탐지했습니다.",
+        "동일 계좌 사이의 단기간 반복 이체 패턴을 탐지하지 않았습니다.",
+    ),
+    "split_transaction": (
+        "한 송신자가 여러 건으로 나누어 보낸 이체 거래 {evidence_count}건을 탐지했습니다.",
+        "설정된 기준에 해당하는 분할 이체 패턴을 탐지하지 않았습니다.",
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +105,8 @@ class FindingView:
     triggered_text: str
     rule_score_text: str
     rule_score_raw: int
-    reason: str
+    user_reason: str
+    technical_reason: str
     evidence_count: int
 
 
@@ -194,24 +224,34 @@ def to_alert_summary(alert: AlertSummary) -> AlertSummaryView:
 def to_finding_views(
     findings: Sequence[RuleFindingRecord | RuleFindingSnapshot],
 ) -> tuple[FindingView, ...]:
-    return tuple(
-        FindingView(
+    views = []
+    for value in findings:
+        evidence_count = len(
+            value.evidence if isinstance(value, RuleFindingRecord)
+            else value.evidence_transaction_ids
+        )
+        reason_pair = _USER_REASON_TEXT.get(value.rule_id)
+        user_reason = (
+            value.reason
+            if reason_pair is None
+            else reason_pair[0 if value.triggered else 1].format(
+                evidence_count=evidence_count
+            )
+        )
+        views.append(FindingView(
             execution_order=value.execution_order,
             rule_id=value.rule_id,
             rule_name=value.rule_name,
-            risk_type=value.risk_type,
+            risk_type=_RISK_TYPE_TEXT.get(value.rule_id, value.risk_type),
             triggered=value.triggered,
             triggered_text="탐지" if value.triggered else "정상",
             rule_score_text=f"{value.rule_score}/100",
             rule_score_raw=value.rule_score,
-            reason=value.reason,
-            evidence_count=len(
-                value.evidence if isinstance(value, RuleFindingRecord)
-                else value.evidence_transaction_ids
-            ),
-        )
-        for value in findings
-    )
+            user_reason=user_reason,
+            technical_reason=value.reason,
+            evidence_count=evidence_count,
+        ))
+    return tuple(views)
 
 
 def to_evidence_table(

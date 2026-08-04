@@ -165,6 +165,32 @@ def test_valid_upload_shows_metadata_metrics_preview_and_enabled_action(monkeypa
     assert not at.button[0].disabled
 
 
+@pytest.mark.parametrize(
+    ("labels", "expected"),
+    [
+        ((), ()),
+        (("isFraud",), ("isFraud",)),
+        (("isFraud", "isFlaggedFraud"), ("isFraud", "isFlaggedFraud")),
+    ],
+)
+def test_optional_paysim_labels_are_disclosed_only_when_present(
+    monkeypatch, tmp_path, labels, expected
+):
+    payload = _csv().decode().splitlines()
+    payload[0] += "".join(f",{label}" for label in labels)
+    payload[1] += ",1" * len(labels)
+    at = _run(monkeypatch, tmp_path / "operations.sqlite3")
+    at.file_uploader[0].upload(
+        "transactions.csv", ("\n".join(payload) + "\n").encode(), "text/csv"
+    ).run()
+    notices = [value for value in _texts(at.info) if "분석에 사용되지 않음" in value]
+    if not expected:
+        assert notices == []
+    else:
+        assert len(notices) == 1
+        assert all(label in notices[0] for label in expected)
+
+
 def test_saved_alert_list_and_selection_survive_rerun(monkeypatch, tmp_path):
     db_path = tmp_path / "operations.sqlite3"
     db_path.parent.mkdir(parents=True, exist_ok=True)

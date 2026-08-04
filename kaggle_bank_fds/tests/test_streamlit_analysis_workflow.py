@@ -170,6 +170,37 @@ def test_partial_overlap_score_and_input_dataframe_are_preserved(tmp_path):
     assert _counts(config.db_path) == (1, 1)
 
 
+def test_optional_label_values_do_not_change_analysis_or_persisted_alert(tmp_path):
+    base = pd.DataFrame([
+        _row(1, "TRANSFER", 70_000, target="B"),
+        _row(2, "TRANSFER", 70_000, target="B"),
+        _row(3, "TRANSFER", 70_000, target="B"),
+    ])
+    results = []
+    for label_value in (0, 1):
+        frame = base.assign(isFraud=label_value, isFlaggedFraud=label_value)
+        content = frame.to_csv(index=False).encode()
+        parsed = parse_and_validate_paysim_csv(
+            content, filename="transactions.csv", file_size_bytes=len(content)
+        )
+        config = AppConfig(db_path=tmp_path / f"labels-{label_value}.sqlite3")
+        result = importlib.import_module(
+            "kaggle_bank_fds.src.ui.streamlit_app"
+        )._run_analysis(parsed, config)
+        results.append(result)
+    left, right = results
+    assert left.prediction["fraud_score"] == right.prediction["fraud_score"]
+    assert left.prediction["triggered_rules"] == right.prediction["triggered_rules"]
+    assert [
+        (finding.rule_id, tuple(item.canonical_transaction_id for item in finding.evidence))
+        for finding in left.alert.findings
+    ] == [
+        (finding.rule_id, tuple(item.canonical_transaction_id for item in finding.evidence))
+        for finding in right.alert.findings
+    ]
+    assert (left.alert is not None) == (right.alert is not None)
+
+
 def test_orchestration_calls_service_once_closes_repository_and_propagates_failure(
     monkeypatch, tmp_path
 ):
@@ -230,6 +261,47 @@ _render_evidence(rows, limit=200)
     caption = " ".join(str(value.value) for value in at.caption)
     assert "전체 205건 중 처음 200건" in caption
     assert "PaySim 합성 거래 데이터" in caption
+
+
+def test_triggered_finding_defaults_to_20_and_can_select_200_with_same_prefix():
+    script = """
+from types import SimpleNamespace
+from kaggle_bank_fds.src.persistence import EvidenceRecord
+from kaggle_bank_fds.src.ui.app_config import AppConfig
+from kaggle_bank_fds.src.ui.presenters import FindingView
+from kaggle_bank_fds.src.ui.streamlit_app import _render_findings
+rows = tuple(
+    EvidenceRecord(
+        f"tx-{i}", i, i, i + 1, None, "TRANSFER", 1000.0,
+        "actor", "target", None, None, None, None, None, None,
+        "PaySim", "PAYSIM", i,
+    )
+    for i in range(404)
+)
+finding = FindingView(
+    3, "rounded_amount", "Rounded Amount Rule", "고액 라운드 금액 거래",
+    True, "탐지", "20/100", 20, "한국어 탐지 사유", "technical reason", 404,
+)
+record = SimpleNamespace(evidence=rows)
+_render_findings(
+    (finding,), finding_by_id={"rounded_amount": record},
+    config=AppConfig(db_path="unused.sqlite3"), triggered=True, context="probe",
+)
+"""
+    at = AppTest.from_string(script).run()
+    assert not at.exception
+    assert at.selectbox[0].label == "표시할 Evidence 수"
+    assert at.selectbox[0].options == ["20", "50", "100", "200"]
+    assert len(at.dataframe[0].value) == len(at.dataframe[1].value) == 20
+    assert list(at.dataframe[0].value["거래 ID"]) == list(
+        at.dataframe[1].value["거래 ID"]
+    )
+    at.selectbox[0].select(200).run()
+    assert len(at.dataframe[0].value) == len(at.dataframe[1].value) == 200
+    assert list(at.dataframe[0].value["거래 ID"]) == list(
+        at.dataframe[1].value["거래 ID"]
+    )
+    assert any(value.label == "기술 원문 보기" for value in at.expander)
 
 
 def test_rule_error_rendering_has_safe_fields_and_no_traceback():

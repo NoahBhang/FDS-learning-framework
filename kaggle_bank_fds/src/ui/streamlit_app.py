@@ -60,6 +60,11 @@ _REPOSITORY_ERRORS = (
     OSError,
 )
 _LOGGER = logging.getLogger(__name__)
+_EVIDENCE_DISPLAY_OPTIONS = (20, 50, 100, 200)
+_PAYSIM_LABELS = {
+    "isFraud": "PaySim 정답",
+    "isFlaggedFraud": "PaySim 플래그",
+}
 
 
 @contextmanager
@@ -113,7 +118,8 @@ def _render_sidebar(config: AppConfig, *, database_ready: bool) -> None:
         st.write("데이터: PaySim synthetic")
         st.write(f"Ruleset: {config.ruleset_version}")
         st.write(f"최대 업로드 행 수: {config.max_upload_rows:,}")
-        st.write(f"Evidence 기본 표시 수: {config.max_evidence_rows:,}")
+        st.write("Evidence 기본 표시 수: 20")
+        st.write(f"Evidence 최대 표시 수: {config.max_evidence_rows:,}")
         st.write("SQLite schema v1")
         if database_ready:
             st.success("DB 준비 완료")
@@ -163,6 +169,7 @@ def _render_analysis_tab(config: AppConfig) -> None:
     row_metric.metric("거래 행 수", f"{parsed.row_count:,}")
     column_metric.metric("컬럼 수", f"{parsed.column_count:,}")
     st.dataframe(parsed.preview, width="stretch", hide_index=True)
+    _render_optional_label_notice(parsed.dataframe.columns)
     st.success("CSV 사전 검증이 완료되었습니다.")
     completed = st.session_state.bank_fds_completed_action_token is not None
     completed_for_upload = (
@@ -226,7 +233,7 @@ def _render_current_analysis(
     _render_analysis_summary(summary)
     if current_result is not None:
         if current_result.alert is not None:
-            _render_alert_detail(current_result.alert, config=config)
+            _render_alert_detail(current_result.alert, config=config, context="latest_analysis")
         else:
             _render_snapshot_findings_and_errors(current_result, config=config)
         return
@@ -246,7 +253,7 @@ def _render_current_analysis(
     if detail is None:
         st.error("저장된 분석 상세를 찾을 수 없습니다.")
         return
-    _render_alert_detail(detail, config=config)
+    _render_alert_detail(detail, config=config, context="latest_analysis")
 
 
 def _render_analysis_summary(summary: AnalysisSummaryView) -> None:
@@ -267,7 +274,9 @@ def _render_analysis_summary(summary: AnalysisSummaryView) -> None:
         st.write(f"Ruleset: {summary.ruleset_version}")
 
 
-def _render_alert_detail(detail: AlertDetail, *, config: AppConfig) -> None:
+def _render_alert_detail(
+    detail: AlertDetail, *, config: AppConfig, context: str = "latest_analysis"
+) -> None:
     view = to_alert_detail(detail)
     finding_by_id = {finding.rule_id: finding for finding in detail.findings}
     _render_findings(
@@ -275,12 +284,14 @@ def _render_alert_detail(detail: AlertDetail, *, config: AppConfig) -> None:
         finding_by_id=finding_by_id,
         config=config,
         triggered=True,
+        context=context,
     )
     _render_findings(
         view.clean_findings,
         finding_by_id=finding_by_id,
         config=config,
         triggered=False,
+        context=context,
     )
     _render_errors(view.errors)
 
@@ -294,8 +305,14 @@ def _render_snapshot_findings_and_errors(
     findings = to_finding_views(result.artifact.rule_findings)
     clean = tuple(finding for finding in findings if not finding.triggered)
     triggered = tuple(finding for finding in findings if finding.triggered)
-    _render_findings(triggered, finding_by_id={}, config=None, triggered=True)
-    _render_findings(clean, finding_by_id={}, config=None, triggered=False)
+    _render_findings(
+        triggered, finding_by_id={}, config=None, triggered=True,
+        context="latest_analysis",
+    )
+    _render_findings(
+        clean, finding_by_id={}, config=None, triggered=False,
+        context="latest_analysis",
+    )
     _render_errors(to_error_views(result.artifact.rule_errors))
 
 
@@ -305,6 +322,7 @@ def _render_findings(
     finding_by_id: dict,
     config: AppConfig | None,
     triggered: bool,
+    context: str,
 ) -> None:
     if not findings:
         return
@@ -318,13 +336,34 @@ def _render_findings(
             expanded=triggered,
         ):
             st.write(f"Rule ID: {finding.rule_id}")
-            st.write(f"Risk type: {finding.risk_type}")
-            st.write(f"Execution order: {finding.execution_order}")
-            st.write(f"Reason: {finding.reason}")
-            st.write(f"Evidence count: {finding.evidence_count}")
+            st.write(f"위험 유형: {finding.risk_type}")
+            st.write(f"실행 순서: {finding.execution_order}")
+            st.write(f"탐지 사유: {finding.user_reason}")
+            st.write(f"Evidence 수: {finding.evidence_count}건")
             record = finding_by_id.get(finding.rule_id)
             if triggered and record is not None and config is not None:
-                _render_evidence(record.evidence, limit=config.max_evidence_rows)
+                options = tuple(
+                    value for value in _EVIDENCE_DISPLAY_OPTIONS
+                    if value <= config.max_evidence_rows
+                )
+                if config.max_evidence_rows not in options:
+                    options += (config.max_evidence_rows,)
+                options = tuple(sorted(set(options)))
+                selected_limit = st.selectbox(
+                    "표시할 Evidence 수",
+                    options,
+                    index=0,
+                    key=(
+                        f"bank_fds_evidence_limit_{context}_"
+                        f"{finding.rule_id}_{finding.execution_order}"
+                    ),
+                )
+                _render_evidence(
+                    record.evidence,
+                    limit=min(selected_limit, config.max_evidence_rows),
+                )
+            with st.expander("기술 원문 보기", expanded=False):
+                st.write(finding.technical_reason)
 
 
 def _render_evidence(evidence, *, limit: int) -> None:
@@ -368,6 +407,19 @@ def _render_evidence(evidence, *, limit: int) -> None:
             width="stretch",
             hide_index=True,
         )
+
+
+def _render_optional_label_notice(columns) -> None:
+    present = [name for name in _PAYSIM_LABELS if name in columns]
+    if not present:
+        return
+    descriptions = "와 ".join(
+        f"{name}는 {_PAYSIM_LABELS[name]} 참고 열" for name in present
+    )
+    st.info(
+        f"참고: {descriptions}이며, 현재 규칙 기반 위험점수와 Rule 판정에는 "
+        "사용되지 않습니다 (분석에 사용되지 않음)."
+    )
 
 
 def _render_errors(errors) -> None:
@@ -493,7 +545,7 @@ def _render_history_detail(detail: AlertDetail, *, config: AppConfig) -> None:
         st.write(f"분석 Run ID: {view.analysis_run_id}")
         st.write(f"데이터 Source: {view.source_name}")
         st.write(f"Ruleset: {view.ruleset_version}")
-    _render_alert_detail(detail, config=config)
+    _render_alert_detail(detail, config=config, context="historical_alert")
 
 
 def main() -> None:

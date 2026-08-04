@@ -149,6 +149,35 @@ def test_finding_order_scores_reason_and_snapshot_support():
     assert to_finding_views((snapshot,))[0].evidence_count == 0
 
 
+@pytest.mark.parametrize("rule_id,expected", [
+    ("transfer_cash_out", "이체 후 현금화 의심"),
+    ("full_balance_transfer", "계좌 잔액 대부분 이체"),
+    ("rounded_amount", "고액 라운드 금액 거래"),
+    ("rapid_repeated_transfer", "단기간 반복 이체"),
+    ("split_transaction", "분할 이체 의심"),
+])
+def test_known_rule_risk_types_use_korean_presentation_mapping(rule_id, expected):
+    view = to_finding_views((_finding(rule_id),))[0]
+    assert view.risk_type == expected
+    assert view.technical_reason == "reason"
+
+
+def test_unknown_rule_preserves_risk_type_and_reason_without_information_loss():
+    view = to_finding_views((_finding("custom_rule"),))[0]
+    assert view.risk_type == "risk"
+    assert view.user_reason == view.technical_reason == "reason"
+
+
+def test_known_rule_user_reasons_distinguish_triggered_and_clean_contracts():
+    triggered = to_finding_views((
+        _finding("rounded_amount", evidence=(_evidence("a"), _evidence("b"))),
+    ))[0]
+    clean = to_finding_views((_finding("rounded_amount", triggered=False),))[0]
+    assert triggered.user_reason == "설정된 기준 이상의 라운드 금액 거래 2건을 탐지했습니다."
+    assert clean.user_reason == "설정된 기준 이상의 라운드 금액 거래를 탐지하지 않았습니다."
+    assert triggered.technical_reason == clean.technical_reason == "reason"
+
+
 def test_evidence_default_and_detailed_mapping_order_and_source_types():
     evidence = (
         _evidence("a", 2, 10), _evidence("a", 0, "10"),
@@ -168,6 +197,31 @@ def test_evidence_limit_truncation_and_only_prefix_materialized():
     assert (view.total_count, view.displayed_count, view.truncated) == (10_000, 200, True)
     assert len(view.rows) == 200 and view.rows[-1].canonical_transaction_id == "tx-199"
     assert "10,000" in view.caption and "200" in view.caption
+
+
+class _ObservedEvidence:
+    def __init__(self, size):
+        self.size = size
+        self.requested = []
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, index):
+        self.requested.append(index)
+        return _evidence(f"tx-{index}", index)
+
+
+@pytest.mark.parametrize("limit", [20, 200])
+def test_large_evidence_materializes_only_selected_prefix(limit):
+    evidence = _ObservedEvidence(10_000)
+    view = to_evidence_table(evidence, limit=limit)
+    assert view.total_count == 10_000
+    assert view.displayed_count == len(view.rows) == limit
+    assert evidence.requested == list(range(limit))
+    assert [row.canonical_transaction_id for row in view.rows] == [
+        f"tx-{index}" for index in range(limit)
+    ]
 
 
 @pytest.mark.parametrize("limit", [True, 1.5, "1", 0, -1])
