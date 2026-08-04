@@ -34,7 +34,7 @@ def test_readme_quick_start_uses_python311_and_module_entrypoint():
     assert "python3.11 -m venv .venv" in readme
     assert "python -m streamlit run kaggle_bank_fds/src/ui/streamlit_app.py" in readme
     assert "pip install -r requirements-dev.txt" in readme
-    assert "1,119개 테스트" in readme
+    assert "1,133개 테스트" in readme
     assert "https://github.com/NoahBhang/FDS_Model.git" in readme
     assert "FDS-learning-framework.git" not in readme
     assert "streamlit run scripts/app.py" not in readme

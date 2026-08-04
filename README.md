@@ -177,7 +177,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q -p no:cacheprovider
 ```
 
-2026-08-04 Portfolio Delivery Phase 5 기준 fresh Python 3.11 환경에서 1,119개 테스트를 통과했습니다. 테스트 수는 기능 추가에 따라 변경될 수 있습니다. 검증 범위에는 model validation, Rule overlap, canonical Evidence, schema migration, atomic rollback, SQL injection 방어, corruption detection, N+1 방지, Streamlit AppTest, rerun 중복 저장 방지, headless runtime smoke, demo semantic contract가 포함됩니다.
+2026-08-04 Portfolio Delivery Phase 5 기준 fresh Python 3.11 환경에서 1,133개 테스트를 통과했습니다. 테스트 수는 기능 추가에 따라 변경될 수 있습니다. 검증 범위에는 model validation, Rule overlap, canonical Evidence, schema migration, atomic rollback, SQL injection 방어, corruption detection, N+1 방지, Streamlit AppTest, rerun 중복 저장 방지, headless runtime smoke, demo semantic contract가 포함됩니다.
 
 ## Performance Notes
 

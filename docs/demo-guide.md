@@ -85,7 +85,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q -p no:cacheprovider
 ```
 
-2026-08-04 Portfolio Delivery Phase 5 기준 fresh Python 3.11 환경에서 1,119개 테스트를 통과했습니다. 이 suite는 model/Rule, Policy B, canonical Evidence, atomic rollback, schema corruption, SQL injection, typed round-trip, Streamlit lifecycle 및 demo semantics를 포함합니다. 테스트 수는 기능 추가에 따라 달라질 수 있습니다.
+2026-08-04 Portfolio Delivery Phase 5 기준 fresh Python 3.11 환경에서 1,133개 테스트를 통과했습니다. 이 suite는 model/Rule, Policy B, canonical Evidence, atomic rollback, schema corruption, SQL injection, typed round-trip, Streamlit lifecycle 및 demo semantics를 포함합니다. 테스트 수는 기능 추가에 따라 달라질 수 있습니다.
 
 ## 12. 대체 시나리오
 
